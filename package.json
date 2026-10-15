@@ -1,0 +1,59 @@
+{
+  "name": "dsh-achievement-sound",
+  "version": "0.1.1",
+  "description": "DSH 提示音插件：任务完成（turn/end）与助手等你回答（ask_user_question）时播放「成就解锁」风格提示音；宿主直接发声，页面关了也响",
+  "keywords": [
+    "dsh",
+    "dsh-plugin",
+    "deepseek-harness",
+    "sound",
+    "notification",
+    "achievement",
+    "提示音"
+  ],
+  "license": "MIT",
+  "type": "module",
+  "main": "lib/index.js",
+  "files": [
+    "lib",
+    "assets",
+    "tools",
+    "cordis.patch.yml",
+    "README.md",
+    "LICENSE"
+  ],
+  "scripts": {
+    "gen": "node tools/gen-chime.mjs",
+    "preview": "node tools/preview.mjs",
+    "preview:wait": "node tools/preview.mjs await-input",
+    "diagnose": "node tools/diagnose.mjs",
+    "test": "node test/selftest.mjs",
+    "check": "node test/braces.mjs lib/index.js && node test/braces.mjs lib/sound.js"
+  },
+  "exports": {
+    ".": {
+      "default": "./lib/index.js"
+    },
+    "./package.json": "./package.json"
+  },
+  "dsh": {
+    "bundle": {
+      "patch": "./cordis.patch.yml"
+    }
+  },
+  "engines": {
+    "node": "^22.19 || >=24"
+  },
+  "peerDependencies": {
+    "@deepseek-ai/cordis": "^4.0.4",
+    "@deepseek-ai/dsh": "^0.2.0-rc.2"
+  },
+  "peerDependenciesMeta": {
+    "@deepseek-ai/cordis": {
+      "optional": true
+    },
+    "@deepseek-ai/dsh": {
+      "optional": true
+    }
+  }
+}
