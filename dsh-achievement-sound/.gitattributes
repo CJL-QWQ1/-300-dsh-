@@ -1,0 +1,9 @@
+# 源码统一 LF，避免 Windows/macOS 来回改行尾
+* text=auto eol=lf
+
+# 音频与图片是二进制，绝不能被行尾规范化碰
+*.wav binary
+*.mp3 binary
+*.png binary
+*.jpg binary
+*.gif binary
