@@ -15,17 +15,21 @@
   var POS_KEY = 'dsh-aliyun-coupon:pos';
   var HIDDEN_KEY = 'dsh-aliyun-coupon:hidden';
   var SCALE_KEY = 'dsh-aliyun-coupon:scale';
+  var BG_KEY = 'dsh-aliyun-coupon:bg';
   var MIN_SCALE = 0.7;
   var MAX_SCALE = 2;
+  var EDGE = 4;             // 卡片与窗口边缘之间至少留这么多像素
+  var DEFAULT_DIM = 0.55;   // 背景图上的遮罩浓度，保证数字始终看得清
   var POLL_MS = 60000;
 
-  // 当前缩放倍率（1 = 原始大小）。只在浏览器侧存，不打扰宿主。
+  // 当前缩放倍率（1 = 原始大小）与自定义背景。都只在浏览器侧存，不打扰宿主。
   var scale = 1;
+  var bg = null;            // { src, dim }
 
   if (window.__dshAliyunCouponMounted) return;
   window.__dshAliyunCouponMounted = true;
 
-  var state = { data: null, busy: false, error: '', detail: false, collapsed: false };
+  var state = { data: null, busy: false, error: '', detail: false, collapsed: false, bgPanel: false, bgNote: '', bgDraft: '' };
 
   // —— 样式：只用 DSH 主题令牌，浅色/深色都跟手 ——
   var CSS = [
@@ -74,6 +78,13 @@
     'padding:1px 7px;border-radius:7px;font-size:10px;line-height:1.6;white-space:nowrap;',
     'background:var(--dsw-alias-bg-overlay);border:.5px solid var(--dsw-alias-border-l2);',
     'color:var(--dsw-alias-label-secondary);pointer-events:none}',
+    // 自定义背景面板
+    '.dac-bg{display:flex;flex-direction:column;gap:6px;margin-top:4px;',
+    'border-top:.5px solid var(--dsw-alias-border-l2);padding-top:6px}',
+    '.dac-bg-row{display:flex;gap:6px;align-items:center}',
+    '.dac-range{flex:1;min-width:0;accent-color:var(--dsw-alias-brand-primary)}',
+    // 真正的 <input type=file> 藏起来，用按钮代它触发
+    '.dac-file{position:absolute;width:1px;height:1px;opacity:0;pointer-events:none}',
   ].join('');
 
   function el(tag, className, text) {
@@ -235,11 +246,6 @@
       card.appendChild(list);
     }
 
-    // 文件位置
-    if (data && data.files && data.files.markdown) {
-      card.appendChild(el('div', 'dac-mini', '已写入 ' + data.files.markdown));
-    }
-
     // 按钮
     var row = el('div', 'dac-row');
     var refreshBtn = el('button', 'dac-btn', state.busy ? '…' : '刷新');
@@ -256,6 +262,11 @@
       row.appendChild(editBtn);
     }
 
+    var bgBtn = el('button', 'dac-btn', state.bgPanel ? '收起背景' : '背景');
+    bgBtn.title = '给挂件换一张背景图';
+    bgBtn.addEventListener('click', function () { state.bgPanel = !state.bgPanel; render(); });
+    row.appendChild(bgBtn);
+
     var hideBtn = el('button', 'dac-btn', '隐藏');
     hideBtn.addEventListener('click', function () {
       try { localStorage.setItem(HIDDEN_KEY, '1'); } catch (e) {}
@@ -265,6 +276,8 @@
     row.appendChild(hideBtn);
 
     card.appendChild(row);
+
+    if (state.bgPanel) renderBgPanel(card);
   }
 
   function statusText(status) {
@@ -307,6 +320,255 @@
       : '存入 DSH 凭证服务'));
   }
 
+  // —— 自定义背景 ——
+  var colorMixOk = null;
+
+  function supportsColorMix() {
+    if (colorMixOk !== null) return colorMixOk;
+    try {
+      colorMixOk = !!(window.CSS && CSS.supports
+        && CSS.supports('color', 'color-mix(in srgb, red 50%, transparent)'));
+    } catch (e) { colorMixOk = false; }
+    return colorMixOk;
+  }
+
+  function clampDim(value) {
+    var num = Number(value);
+    if (!Number.isFinite(num)) return DEFAULT_DIM;
+    return Math.min(0.9, Math.max(0, Math.round(num * 100) / 100));
+  }
+
+  function currentDim() {
+    return bg ? clampDim(bg.dim) : DEFAULT_DIM;
+  }
+
+  // 只接受 data:image/* 与 http(s) 网址。CSS url() 里塞别的协议没好处，一律拒绝。
+  function safeBgSrc(raw) {
+    var src = String(raw == null ? '' : raw).trim();
+    if (!src) return '';
+    if (/^data:image\/(png|jpe?g|gif|webp|bmp|avif|svg\+xml);base64,/i.test(src)) return src;
+    // 用 \x22 / \x27 而不是字面引号：语义一样，但不会把简单的括号探针骗成"字符串没闭合"
+    if (/^https?:\/\/[^\s\x22\x27()]+$/i.test(src)) return src;
+    return '';
+  }
+
+  function applyBackground(card) {
+    if (!card) return;
+    try {
+      if (!bg || !bg.src) {
+        card.style.backgroundImage = '';
+        card.style.backgroundSize = '';
+        card.style.backgroundPosition = '';
+        return;
+      }
+      var dim = clampDim(bg.dim);
+      // 图片上盖一层主题色遮罩，浅色/深色主题下文字都还看得清；
+      // 老浏览器没有 color-mix 就退回固定的黑色半透明。
+      var veilColor = supportsColorMix()
+        ? 'color-mix(in srgb, var(--dsw-alias-bg-overlay) ' + Math.round(dim * 100) + '%, transparent)'
+        : 'rgba(0,0,0,' + (dim * 0.8).toFixed(2) + ')';
+      var veil = dim > 0 ? 'linear-gradient(' + veilColor + ' 0 0)' : '';
+      card.style.backgroundImage = (veil ? veil + ',' : '')
+        + 'url("' + String(bg.src).replace(/"/g, '%22') + '")';
+      card.style.backgroundSize = 'cover';
+      card.style.backgroundPosition = 'center';
+    } catch (e) {}
+  }
+
+  function persistBg(next) {
+    var previous = bg;
+    bg = next;
+    try {
+      if (next) localStorage.setItem(BG_KEY, JSON.stringify(next));
+      else localStorage.removeItem(BG_KEY);
+      return true;
+    } catch (e) {
+      bg = previous;      // 写不进去就别让内存里留着一个"看起来生效了"的状态
+      return false;
+    }
+  }
+
+  function readBg() {
+    try {
+      var raw = localStorage.getItem(BG_KEY);
+      if (!raw) return null;
+      var parsed = JSON.parse(raw);
+      var src = safeBgSrc(parsed && parsed.src);
+      return src ? { src: src, dim: clampDim(parsed && parsed.dim) } : null;
+    } catch (e) { return null; }
+  }
+
+  // 先真的加载一次：网址失效或被页面安全策略挡住时要能说清楚，而不是静默没反应。
+  function probeImage(src) {
+    return new Promise(function (resolve) {
+      var settled = false;
+      var finish = function (ok) { if (!settled) { settled = true; resolve(ok); } };
+      var img = new Image();
+      img.onload = function () { finish(true); };
+      img.onerror = function () { finish(false); };
+      try { img.src = src; } catch (e) { finish(false); }
+      setTimeout(function () { finish(false); }, 8000);
+    });
+  }
+
+  // 本地图片压到最长边 maxSize 再存，避免撑爆 localStorage（一般只有几 MB）。
+  function fileToDataUrl(file, maxSize, type, quality) {
+    return new Promise(function (resolve, reject) {
+      var reader = new FileReader();
+      reader.onerror = function () { reject(new Error('读取文件失败')); };
+      reader.onload = function () {
+        var img = new Image();
+        img.onerror = function () { reject(new Error('这个文件解不出图片')); };
+        img.onload = function () {
+          try {
+            var width = img.width || 1;
+            var height = img.height || 1;
+            var ratio = Math.min(1, maxSize / Math.max(width, height));
+            var canvas = document.createElement('canvas');
+            canvas.width = Math.max(1, Math.round(width * ratio));
+            canvas.height = Math.max(1, Math.round(height * ratio));
+            var context = canvas.getContext('2d');
+            if (!context) { resolve(String(reader.result)); return; }
+            context.drawImage(img, 0, 0, canvas.width, canvas.height);
+            resolve(canvas.toDataURL(type, quality));
+          } catch (error) { reject(error); }
+        };
+        img.src = String(reader.result);
+      };
+      reader.readAsDataURL(file);
+    });
+  }
+
+  function renderBgPanel(card) {
+    function note(text) {
+      state.bgNote = text;
+      render();
+    }
+
+    function useFile(file, button) {
+      button.disabled = true;
+      button.textContent = '处理中…';
+      var restore = function () {
+        button.disabled = false;
+        button.textContent = '选择图片…';
+      };
+      // PNG/GIF/WebP/SVG 往往带透明通道：一律转 JPEG 会把透明区填成黑底，
+      // 所以这类源图保持 PNG，尺寸压得更狠一点来抵消体积。
+      var lossless = /png|gif|webp|svg/i.test(String(file.type || ''));
+      var type = lossless ? 'image/png' : 'image/jpeg';
+      fileToDataUrl(file, lossless ? 480 : 640, type, lossless ? undefined : 0.82)
+        .then(function (src) {
+          // 能解码不等于能显示：页面 CSP 可能不允许 data: 图片。
+          // 先真加载一次，失败就把原因说出来，别让用户对着"没反应"猜。
+          return probeImage(src).then(function (ok) {
+            if (!ok) {
+              note('图片能解码，但页面安全策略不允许把 data: 当图片加载 —— 说一声，我改成走插件自己的本地路由');
+              return undefined;
+            }
+            if (persistBg({ src: src, dim: currentDim() })) {
+              applyBackground(card);
+              note('');
+              return undefined;
+            }
+            // 存储放不下：压得更小再试一次
+            return fileToDataUrl(file, lossless ? 320 : 360, type, lossless ? undefined : 0.7).then(function (small) {
+              if (persistBg({ src: small, dim: currentDim() })) {
+                applyBackground(card);
+                note('图片偏大，已自动压到更小尺寸才放进浏览器存储');
+                return;
+              }
+              note('浏览器存储放不下这张图，换张小图或改用网址');
+            });
+          });
+        })
+        .catch(function (error) {
+          note('这张图用不了：' + String(error && error.message || error));
+        })
+        .then(restore);
+    }
+
+    var panel = el('div', 'dac-bg');
+
+    var row1 = el('div', 'dac-bg-row');
+    var fileInput = el('input', 'dac-file');
+    fileInput.type = 'file';
+    fileInput.accept = 'image/*';
+    var pickBtn = el('button', 'dac-btn', '选择图片…');
+    pickBtn.addEventListener('click', function () {
+      try { fileInput.click(); } catch (e) { note('这个浏览器不允许脚本打开文件选择框'); }
+    });
+    fileInput.addEventListener('change', function () {
+      var file = fileInput.files && fileInput.files[0];
+      fileInput.value = '';          // 清空，才能连续选同一个文件
+      if (file) useFile(file, pickBtn);
+    });
+    var clearBtn = el('button', 'dac-btn', '清除背景');
+    clearBtn.addEventListener('click', function () {
+      persistBg(null);
+      applyBackground(card);
+      note('');
+    });
+    row1.appendChild(pickBtn);
+    row1.appendChild(clearBtn);
+    row1.appendChild(fileInput);
+    panel.appendChild(row1);
+
+    var row2 = el('div', 'dac-bg-row');
+    var urlInput = el('input', 'dac-input');
+    urlInput.type = 'text';
+    urlInput.placeholder = '或粘贴图片网址 https://…';
+    urlInput.autocomplete = 'off';
+    urlInput.value = state.bgDraft || '';
+    urlInput.addEventListener('input', function () { state.bgDraft = urlInput.value; });
+    var useBtn = el('button', 'dac-btn', '应用');
+    var useUrl = function () {
+      var src = safeBgSrc(urlInput.value);
+      if (!src) { note('只接受 http(s) 网址，或者直接选本地图片'); return; }
+      useBtn.disabled = true;
+      probeImage(src).then(function (ok) {
+        useBtn.disabled = false;
+        if (!ok) { note('这张图加载不出来：网址失效，或页面安全策略不允许外链图片'); return; }
+        if (!persistBg({ src: src, dim: currentDim() })) { note('浏览器存储写不进去'); return; }
+        applyBackground(card);
+        note('');
+      });
+    };
+    useBtn.addEventListener('click', useUrl);
+    urlInput.addEventListener('keydown', function (event) {
+      if (event.key === 'Enter') { event.preventDefault(); useUrl(); }
+    });
+    row2.appendChild(urlInput);
+    row2.appendChild(useBtn);
+    panel.appendChild(row2);
+
+    var row3 = el('div', 'dac-bg-row');
+    var dimLabel = el('span', 'dac-mini', '遮罩 ' + Math.round(currentDim() * 100) + '%');
+    var range = el('input', 'dac-range');
+    range.type = 'range';
+    range.min = '0';
+    range.max = '90';
+    range.step = '5';
+    range.value = String(Math.round(currentDim() * 100));
+    range.addEventListener('input', function () {
+      var dim = clampDim(Number(range.value) / 100);
+      dimLabel.textContent = '遮罩 ' + Math.round(dim * 100) + '%';
+      if (!bg || !bg.src) return;
+      bg = { src: bg.src, dim: dim };     // 先只改内存做实时预览
+      applyBackground(card);
+    });
+    range.addEventListener('change', function () {
+      if (!bg || !bg.src) return;
+      persistBg(bg);                       // 松手才落盘
+    });
+    row3.appendChild(dimLabel);
+    row3.appendChild(range);
+    panel.appendChild(row3);
+
+    panel.appendChild(el('div', 'dac-mini', '本地图片会压到最长边 640px，只存在这台机器的浏览器里（localStorage），不上传、也不写进工作区文件'));
+    if (state.bgNote) panel.appendChild(el('div', 'dac-exp', state.bgNote));
+    card.appendChild(panel);
+  }
+
   // —— 缩放 ——
   function clampScale(value) {
     var num = Number(value);
@@ -332,24 +594,53 @@
     try { node.style.setProperty('--dac-scale', String(scale)); } catch (e) {}
   }
 
-  // 放大后可能被推出屏幕：只在真的溢出时平移回来，其余情况一动不动
+  // 位置一律用 right/bottom 表示：transform-origin 就是右下角，这个角在任何倍率下都不动，
+  // 所以「视觉位置 == 布局位置」恒成立，钳制不会因为缩放而算错。
+  // （缩小后能被拖出窗口的 bug 就是这么来的：旧代码把视觉 left/top 直接写回布局 left/top。）
+  function offsetsOf(card) {
+    var rect = card.getBoundingClientRect();
+    return {
+      right: window.innerWidth - rect.right,
+      bottom: window.innerHeight - rect.bottom,
+      width: rect.width,
+      height: rect.height,
+    };
+  }
+
+  // 夹进「整张卡片都还在窗口里」的范围：最多贴到边缘，留 EDGE 像素。
+  function clampOffsets(right, bottom, width, height) {
+    var maxRight = Math.max(EDGE, window.innerWidth - width - EDGE);
+    var maxBottom = Math.max(EDGE, window.innerHeight - height - EDGE);
+    return {
+      right: Math.min(Math.max(right, EDGE), maxRight),
+      bottom: Math.min(Math.max(bottom, EDGE), maxBottom),
+    };
+  }
+
+  function setOffsets(card, right, bottom) {
+    card.style.right = right + 'px';
+    card.style.bottom = bottom + 'px';
+    card.style.left = 'auto';
+    card.style.top = 'auto';
+  }
+
+  // 只在真的溢出时平移回来，其余情况一动不动
   // （默认的 right:16px / bottom:96px 留白因此不会被"顺手修正"掉）。
   function keepInView(card) {
     try {
-      var rect = card.getBoundingClientRect();
-      var margin = 4;
-      var dx = 0;
-      var dy = 0;
-      if (rect.right > window.innerWidth - margin) dx = rect.right - (window.innerWidth - margin);
-      if (rect.bottom > window.innerHeight - margin) dy = rect.bottom - (window.innerHeight - margin);
-      if (rect.left - dx < margin) dx = rect.left - margin;
-      if (rect.top - dy < margin) dy = rect.top - margin;
-      if (!dx && !dy) return;
-      var cs = window.getComputedStyle(card);
-      if (cs.right !== 'auto') card.style.right = (parseFloat(cs.right) + dx) + 'px';
-      else if (cs.left !== 'auto') card.style.left = (parseFloat(cs.left) - dx) + 'px';
-      if (cs.bottom !== 'auto') card.style.bottom = (parseFloat(cs.bottom) + dy) + 'px';
-      else if (cs.top !== 'auto') card.style.top = (parseFloat(cs.top) - dy) + 'px';
+      var now = offsetsOf(card);
+      if (!now.width || !now.height) return;       // 还没进 DOM，量不到
+      var next = clampOffsets(now.right, now.bottom, now.width, now.height);
+      if (next.right === now.right && next.bottom === now.bottom) return;
+      setOffsets(card, next.right, next.bottom);
+    } catch (e) {}
+  }
+
+  function savePos(card) {
+    try {
+      var now = offsetsOf(card);
+      if (!now.width || !now.height) return;
+      localStorage.setItem(POS_KEY, JSON.stringify({ right: now.right, bottom: now.bottom }));
     } catch (e) {}
   }
 
@@ -431,44 +722,54 @@
     card.addEventListener('pointerdown', function (event) {
       if (event.target !== card && !/dac-head/.test(String(event.target.className))) return;
       if (event.button !== 0) return;
-      var rect = card.getBoundingClientRect();
-      // 用视觉尺寸（getBoundingClientRect）而不是 offsetWidth：缩放后两者不一致，
-      // 否则放大过的卡片能被拖到屏幕外。
-      drag = { x: event.clientX, y: event.clientY, left: rect.left, top: rect.top, w: rect.width, h: rect.height };
+      var now = offsetsOf(card);
+      if (!now.width || !now.height) return;
+      drag = { x: event.clientX, y: event.clientY, right: now.right, bottom: now.bottom, w: now.width, h: now.height };
       card.setPointerCapture(event.pointerId);
     });
     card.addEventListener('pointermove', function (event) {
       if (!drag) return;
-      var left = drag.left + (event.clientX - drag.x);
-      var top = drag.top + (event.clientY - drag.y);
-      left = Math.max(4, Math.min(left, window.innerWidth - drag.w - 4));
-      top = Math.max(4, Math.min(top, window.innerHeight - drag.h - 4));
-      card.style.left = left + 'px';
-      card.style.top = top + 'px';
-      card.style.right = 'auto';
-      card.style.bottom = 'auto';
+      // 往右拖 = right 偏移变小；每一帧都重新钳制，所以最多只能贴到窗口边缘，出不去。
+      var next = clampOffsets(
+        drag.right - (event.clientX - drag.x),
+        drag.bottom - (event.clientY - drag.y),
+        drag.w,
+        drag.h
+      );
+      setOffsets(card, next.right, next.bottom);
     });
     card.addEventListener('pointerup', function (event) {
       if (!drag) return;
       drag = null;
       try { card.releasePointerCapture(event.pointerId); } catch (e) {}
-      var rect = card.getBoundingClientRect();
-      try { localStorage.setItem(POS_KEY, JSON.stringify({ left: rect.left, top: rect.top })); } catch (e) {}
+      savePos(card);
     });
   }
 
+  // 必须在卡片入 DOM 且已应用缩放之后调用：要靠 getBoundingClientRect 量到真实视觉尺寸。
   function restorePosition(card) {
     var raw;
     try { raw = localStorage.getItem(POS_KEY); } catch (e) { return; }
     if (!raw) return;
+    var pos;
+    try { pos = JSON.parse(raw); } catch (e) { return; }
     try {
-      var pos = JSON.parse(raw);
-      if (typeof pos.left === 'number' && typeof pos.top === 'number') {
-        card.style.left = Math.max(4, Math.min(pos.left, window.innerWidth - 220)) + 'px';
-        card.style.top = Math.max(4, Math.min(pos.top, window.innerHeight - 80)) + 'px';
-        card.style.right = 'auto';
-        card.style.bottom = 'auto';
+      var now = offsetsOf(card);
+      if (!now.width || !now.height) return;
+      var right;
+      var bottom;
+      if (typeof pos.right === 'number' && typeof pos.bottom === 'number') {
+        right = pos.right;
+        bottom = pos.bottom;
+      } else if (typeof pos.left === 'number' && typeof pos.top === 'number') {
+        // 旧版本存的是视觉 left/top，换算成 right/bottom 后照常用
+        right = window.innerWidth - (pos.left + now.width);
+        bottom = window.innerHeight - (pos.top + now.height);
+      } else {
+        return;
       }
+      var next = clampOffsets(right, bottom, now.width, now.height);
+      setOffsets(card, next.right, next.bottom);
     } catch (e) {}
   }
 
@@ -497,9 +798,10 @@
         host.appendChild(bubble);
       } else {
         var card = buildCard();
-        restorePosition(card);
+        host.appendChild(card);      // 先入 DOM：缩放与位置都要量到真实视觉尺寸才准
         applyScale(card);
-        host.appendChild(card);
+        applyBackground(card);
+        restorePosition(card);
         keepInView(card);
       }
     }
@@ -529,11 +831,17 @@
     setInterval(function () {
       if (!state.hidden && document.getElementById(ROOT_ID)) load();
     }, POLL_MS);
+    // 窗口被拉小后卡片可能留在外面：尺寸一变就把它拉回可视区。
+    window.addEventListener('resize', function () {
+      var card = document.getElementById(ROOT_ID);
+      if (card) keepInView(card);
+    });
   }
 
   try {
     try { state.hidden = localStorage.getItem(HIDDEN_KEY) === '1'; } catch (e) {}
     scale = readScale();
+    bg = readBg();
     if (document.readyState === 'loading') {
       document.addEventListener('DOMContentLoaded', start, { once: true });
     } else {

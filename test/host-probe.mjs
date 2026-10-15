@@ -220,6 +220,15 @@ assert.ok(body.includes('dac-card'), '应把挂件脚本原样发出去');
 assert.ok(body.includes('dac-grip'), '挂件脚本应带缩放手把手');
 assert.ok(body.includes('--dac-scale'), '缩放应通过 --dac-scale 变量应用');
 assert.ok(body.includes('dsh-aliyun-coupon:scale'), '缩放倍率应持久化到 localStorage');
+// 位置钳制：一律按 right/bottom 算，缩放后才不会被拖出窗口
+assert.ok(body.includes('clampOffsets'), '位置应统一用 clampOffsets 钳制');
+assert.ok(!body.includes('window.innerWidth - 220'), '不应再留下写死 220/80 的旧钳制');
+// 卡片上不再显示"已写入 …"那行长路径
+assert.ok(!body.includes('已写入'), '挂件不应再显示"已写入 …"');
+// 自定义背景
+assert.ok(body.includes('dsh-aliyun-coupon:bg'), '背景设置应持久化到 localStorage');
+assert.ok(body.includes('data:image/'), '背景应只接受 data:image/* 与 http(s)');
+assert.ok(body.includes('toDataURL'), '本地图片应压缩后再存，避免撑爆 localStorage');
 
 // —— 通过挂件保存 AccessKey 后要立刻刷新 ——
 const writeScope = makeScope([]);
