@@ -1,0 +1,21 @@
+# 依赖与打包产物
+node_modules/
+*.tgz
+
+# 本地测试脚手架产生的临时目录
+.ac-probe/
+
+# 任何形态的凭据文件都不许进仓库
+.credentials*
+*.pem
+*.key
+.env
+.env.*
+
+# 插件跑出来的报告（默认写在工作区，这里只是兜底）
+aliyun-coupon/
+
+# 系统与编辑器
+.DS_Store
+Thumbs.db
+*.log

@@ -1,0 +1,61 @@
+{
+  "name": "dsh-aliyun-coupon",
+  "version": "0.1.4",
+  "description": "阿里云代金券余额插件：调用官方 BssOpenApi(QueryCashCoupons) 拉取代金券余额，写入会话工作区文件，并在 DSH 界面右下角显示可刷新的小挂件",
+  "keywords": [
+    "dsh",
+    "dsh-plugin",
+    "deepseek-harness",
+    "aliyun",
+    "coupon",
+    "代金券"
+  ],
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/CJL-QWQ1/-300-dsh-.git"
+  },
+  "homepage": "https://github.com/CJL-QWQ1/-300-dsh-#readme",
+  "bugs": {
+    "url": "https://github.com/CJL-QWQ1/-300-dsh-/issues"
+  },
+  "type": "module",
+  "main": "lib/index.js",
+  "files": [
+    "lib",
+    "widget",
+    "cordis.patch.yml",
+    "README.md",
+    "LICENSE"
+  ],
+  "scripts": {
+    "test": "node test/selftest.mjs",
+    "check": "node test/braces.mjs lib/index.js && node test/braces.mjs lib/core.js"
+  },
+  "exports": {
+    ".": {
+      "default": "./lib/index.js"
+    },
+    "./package.json": "./package.json"
+  },
+  "dsh": {
+    "bundle": {
+      "patch": "./cordis.patch.yml"
+    }
+  },
+  "engines": {
+    "node": "^22.19 || >=24"
+  },
+  "peerDependencies": {
+    "@deepseek-ai/cordis": "^4.0.4",
+    "@deepseek-ai/dsh": "^0.2.0-rc.2"
+  },
+  "peerDependenciesMeta": {
+    "@deepseek-ai/cordis": {
+      "optional": true
+    },
+    "@deepseek-ai/dsh": {
+      "optional": true
+    }
+  }
+}
