@@ -33,7 +33,7 @@
 
   // —— 样式：只用 DSH 主题令牌，浅色/深色都跟手 ——
   var CSS = [
-    '.dac-card{position:fixed;z-index:2147482000;right:16px;bottom:96px;min-width:196px;max-width:280px;',
+    '.dac-card{position:fixed;z-index:2147482000;right:16px;bottom:96px;min-width:98px;max-width:140px;',
     'display:flex;flex-direction:column;gap:6px;padding:10px 12px;border-radius:12px;',
     'background:var(--dsw-alias-bg-overlay);border:.5px solid var(--dsw-alias-border-l2);',
     'box-shadow:0 6px 22px rgba(0,0,0,.16);color:var(--dsw-alias-label-primary);',

@@ -1,6 +1,6 @@
 # 阿里云300代金券接入dsh后余额的快捷显示栏
 
-> DSH 插件 · 包名 `dsh-aliyun-coupon` · 当前版本 `0.1.8` · MIT
+> DSH 插件 · 包名 `dsh-aliyun-coupon` · 当前版本 `0.1.9` · MIT
 
 把阿里云「费用与成本 → 代金券」页面里那个**余额数字**搬进 DeepSeek Harness（DSH）：
 
