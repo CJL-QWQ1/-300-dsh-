@@ -216,6 +216,10 @@ wired.captured.routes
   .handler({ method: 'GET', headers: {} }, { writeHead: (status) => { code = status; }, end: (text) => { body = text; } });
 assert.equal(code, 200);
 assert.ok(body.includes('dac-card'), '应把挂件脚本原样发出去');
+// 调整大小功能必须在真正发出去的脚本里（宿主按 mtime 从磁盘读，改挂件不用重启）
+assert.ok(body.includes('dac-grip'), '挂件脚本应带缩放手把手');
+assert.ok(body.includes('--dac-scale'), '缩放应通过 --dac-scale 变量应用');
+assert.ok(body.includes('dsh-aliyun-coupon:scale'), '缩放倍率应持久化到 localStorage');
 
 // —— 通过挂件保存 AccessKey 后要立刻刷新 ——
 const writeScope = makeScope([]);

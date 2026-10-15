@@ -1,6 +1,6 @@
 {
   "name": "dsh-aliyun-coupon",
-  "version": "0.1.4",
+  "version": "0.1.5",
   "description": "阿里云代金券余额插件：调用官方 BssOpenApi(QueryCashCoupons) 拉取代金券余额，写入会话工作区文件，并在 DSH 界面右下角显示可刷新的小挂件",
   "keywords": [
     "dsh",

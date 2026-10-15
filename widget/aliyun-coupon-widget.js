@@ -14,7 +14,13 @@
   var ROOT_ID = 'dsh-aliyun-coupon-root';
   var POS_KEY = 'dsh-aliyun-coupon:pos';
   var HIDDEN_KEY = 'dsh-aliyun-coupon:hidden';
+  var SCALE_KEY = 'dsh-aliyun-coupon:scale';
+  var MIN_SCALE = 0.7;
+  var MAX_SCALE = 2;
   var POLL_MS = 60000;
+
+  // 当前缩放倍率（1 = 原始大小）。只在浏览器侧存，不打扰宿主。
+  var scale = 1;
 
   if (window.__dshAliyunCouponMounted) return;
   window.__dshAliyunCouponMounted = true;
@@ -57,6 +63,17 @@
     'border-radius:50%;display:flex;align-items:center;justify-content:center;cursor:pointer;',
     'background:var(--dsw-alias-bg-layer-1);border:.5px solid var(--dsw-alias-border-l2);',
     'color:var(--dsw-alias-label-secondary);font:600 11px system-ui}',
+    // 缩放：右下角钉住，放大向左上生长。用 transform 而不是改宽高，
+    // 这样不参与布局、不会挤动 DSH 页面本身，也不会破坏 bottom:96px 的留白。
+    '.dac-card,.dac-restore{transform:scale(var(--dac-scale,1));transform-origin:bottom right}',
+    '.dac-grip{position:absolute;left:-5px;top:-5px;width:20px;height:20px;cursor:nwse-resize;',
+    'border-radius:6px 0 8px 0;opacity:.3;touch-action:none;',
+    'background:repeating-linear-gradient(135deg,var(--dsw-alias-label-tertiary,var(--dsw-alias-label-secondary)) 0 1.5px,transparent 1.5px 5px)}',
+    '.dac-grip:hover,.dac-grip.dac-active{opacity:.9}',
+    '.dac-scale-tag{position:absolute;left:50%;top:-22px;transform:translateX(-50%);',
+    'padding:1px 7px;border-radius:7px;font-size:10px;line-height:1.6;white-space:nowrap;',
+    'background:var(--dsw-alias-bg-overlay);border:.5px solid var(--dsw-alias-border-l2);',
+    'color:var(--dsw-alias-label-secondary);pointer-events:none}',
   ].join('');
 
   function el(tag, className, text) {
@@ -156,11 +173,16 @@
     var card = el('div', 'dac-card');
     card.id = ROOT_ID;
     attachDrag(card);
+    attachResize(card);
     return card;
   }
 
   function renderInto(card) {
     clear(card);
+    // 缩放手把手放在左上角 —— 右下角是被钉住的那一角，往左上拉就是放大。
+    var grip = el('div', 'dac-grip');
+    grip.title = '拖动调整大小 · 双击恢复 100%';
+    card.appendChild(grip);
     var data = state.data;
     var status = data ? data.status : (state.error ? 'error' : 'idle');
     var configured = data && data.configured;
@@ -285,21 +307,142 @@
       : '存入 DSH 凭证服务'));
   }
 
+  // —— 缩放 ——
+  function clampScale(value) {
+    var num = Number(value);
+    if (!Number.isFinite(num)) return 1;
+    return Math.min(MAX_SCALE, Math.max(MIN_SCALE, Math.round(num * 100) / 100));
+  }
+
+  function readScale() {
+    try {
+      var raw = localStorage.getItem(SCALE_KEY);
+      return raw ? clampScale(raw) : 1;
+    } catch (e) { return 1; }
+  }
+
+  function writeScale(value) {
+    scale = clampScale(value);
+    try { localStorage.setItem(SCALE_KEY, String(scale)); } catch (e) {}
+    return scale;
+  }
+
+  function applyScale(node) {
+    if (!node) return;
+    try { node.style.setProperty('--dac-scale', String(scale)); } catch (e) {}
+  }
+
+  // 放大后可能被推出屏幕：只在真的溢出时平移回来，其余情况一动不动
+  // （默认的 right:16px / bottom:96px 留白因此不会被"顺手修正"掉）。
+  function keepInView(card) {
+    try {
+      var rect = card.getBoundingClientRect();
+      var margin = 4;
+      var dx = 0;
+      var dy = 0;
+      if (rect.right > window.innerWidth - margin) dx = rect.right - (window.innerWidth - margin);
+      if (rect.bottom > window.innerHeight - margin) dy = rect.bottom - (window.innerHeight - margin);
+      if (rect.left - dx < margin) dx = rect.left - margin;
+      if (rect.top - dy < margin) dy = rect.top - margin;
+      if (!dx && !dy) return;
+      var cs = window.getComputedStyle(card);
+      if (cs.right !== 'auto') card.style.right = (parseFloat(cs.right) + dx) + 'px';
+      else if (cs.left !== 'auto') card.style.left = (parseFloat(cs.left) - dx) + 'px';
+      if (cs.bottom !== 'auto') card.style.bottom = (parseFloat(cs.bottom) + dy) + 'px';
+      else if (cs.top !== 'auto') card.style.top = (parseFloat(cs.top) - dy) + 'px';
+    } catch (e) {}
+  }
+
+  function gripOf(target) {
+    try {
+      return target && target.closest ? target.closest('.dac-grip') : null;
+    } catch (e) { return null; }
+  }
+
+  // 监听一律挂在 card 上（把手节点会随每次 render 重建，挂它身上会在轮询重绘时断掉），
+  // 指针捕获也抓在 card 上，所以拖动过程中即使卡片重绘，缩放也不会中断。
+  function attachResize(card) {
+    var session = null;
+    var tag = null;
+
+    function ensureTag() {
+      if (tag && tag.parentNode) return;
+      tag = el('div', 'dac-scale-tag', Math.round(scale * 100) + '%');
+      card.appendChild(tag);
+    }
+
+    card.addEventListener('pointerdown', function (event) {
+      var grip = gripOf(event.target);
+      if (!grip || event.button !== 0) return;
+      event.preventDefault();
+      event.stopPropagation();          // 不要同时触发标题栏拖动
+      var rect = card.getBoundingClientRect();
+      if (rect.width < 8 || rect.height < 8) return;
+      session = { scale: scale, pinX: rect.right, pinY: rect.bottom, width: rect.width, height: rect.height };
+      try { card.setPointerCapture(event.pointerId); } catch (e) {}
+      try { grip.classList.add('dac-active'); } catch (e) {}
+      ensureTag();
+    });
+
+    card.addEventListener('pointermove', function (event) {
+      if (!session) return;
+      // 以钉住的右下角为原点：指针离它越远，卡片越大。
+      var ratio = Math.max(
+        (session.pinX - event.clientX) / session.width,
+        (session.pinY - event.clientY) / session.height
+      );
+      if (!Number.isFinite(ratio) || ratio <= 0) return;
+      var next = clampScale(session.scale * ratio);
+      if (next === scale) return;
+      scale = next;
+      applyScale(card);
+      ensureTag();
+      if (tag) tag.textContent = Math.round(scale * 100) + '%';
+      keepInView(card);
+    });
+
+    function finish(event) {
+      if (!session) return;
+      session = null;
+      try { card.releasePointerCapture(event.pointerId); } catch (e) {}
+      var grip = gripOf(event.target);
+      try { if (grip) grip.classList.remove('dac-active'); } catch (e) {}
+      if (tag && tag.parentNode) tag.parentNode.removeChild(tag);
+      tag = null;
+      writeScale(scale);
+      applyScale(card);
+      keepInView(card);
+    }
+    card.addEventListener('pointerup', finish);
+    card.addEventListener('pointercancel', finish);
+
+    card.addEventListener('dblclick', function (event) {
+      if (!gripOf(event.target)) return;
+      event.preventDefault();
+      event.stopPropagation();
+      writeScale(1);
+      applyScale(card);
+      keepInView(card);
+    });
+  }
+
   function attachDrag(card) {
     var drag = null;
     card.addEventListener('pointerdown', function (event) {
       if (event.target !== card && !/dac-head/.test(String(event.target.className))) return;
       if (event.button !== 0) return;
       var rect = card.getBoundingClientRect();
-      drag = { x: event.clientX, y: event.clientY, left: rect.left, top: rect.top };
+      // 用视觉尺寸（getBoundingClientRect）而不是 offsetWidth：缩放后两者不一致，
+      // 否则放大过的卡片能被拖到屏幕外。
+      drag = { x: event.clientX, y: event.clientY, left: rect.left, top: rect.top, w: rect.width, h: rect.height };
       card.setPointerCapture(event.pointerId);
     });
     card.addEventListener('pointermove', function (event) {
       if (!drag) return;
       var left = drag.left + (event.clientX - drag.x);
       var top = drag.top + (event.clientY - drag.y);
-      left = Math.max(4, Math.min(left, window.innerWidth - card.offsetWidth - 4));
-      top = Math.max(4, Math.min(top, window.innerHeight - card.offsetHeight - 4));
+      left = Math.max(4, Math.min(left, window.innerWidth - drag.w - 4));
+      top = Math.max(4, Math.min(top, window.innerHeight - drag.h - 4));
       card.style.left = left + 'px';
       card.style.top = top + 'px';
       card.style.right = 'auto';
@@ -350,11 +493,14 @@
       if (state.hidden) {
         var bubble = buildRestore();
         bubble.id = 'dsh-aliyun-coupon-restore';
+        applyScale(bubble);
         host.appendChild(bubble);
       } else {
         var card = buildCard();
         restorePosition(card);
+        applyScale(card);
         host.appendChild(card);
+        keepInView(card);
       }
     }
   }
@@ -387,6 +533,7 @@
 
   try {
     try { state.hidden = localStorage.getItem(HIDDEN_KEY) === '1'; } catch (e) {}
+    scale = readScale();
     if (document.readyState === 'loading') {
       document.addEventListener('DOMContentLoaded', start, { once: true });
     } else {
