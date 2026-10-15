@@ -27,6 +27,13 @@ Windows 上用系统自带的 `Media.SoundPlayer`（走 `powershell.exe` 5.1，�
 
 ## 安装
 
+> 本插件放在 [`CJL-QWQ1/-300-dsh-`](https://github.com/CJL-QWQ1/-300-dsh-) 仓库的 `dsh-achievement-sound/` 子目录里（仓库根目录是另一个插件：阿里云代金券挂件）。clone 一次两个都能拿到：
+>
+> ```sh
+> git clone https://github.com/CJL-QWQ1/-300-dsh-.git
+> cd -300-dsh-/dsh-achievement-sound
+> ```
+
 ```bash
 # 打包（在本目录）
 pnpm pack --pack-destination <某个目录>

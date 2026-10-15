@@ -2,6 +2,8 @@
 
 > DSH 插件 · 包名 `dsh-aliyun-coupon` · 当前版本 `0.1.9` · MIT
 
+> 📦 **这个仓库里有两个 DSH 插件**：根目录是代金券挂件（本文档），[`dsh-achievement-sound/`](dsh-achievement-sound/README.md) 是成就提示音插件。clone 一次两个都拿到，各自独立安装、互不依赖 —— 详见下面[「仓库里的第二个插件」](#仓库里的第二个插件成就提示音)。
+
 把阿里云「费用与成本 → 代金券」页面里那个**余额数字**搬进 DeepSeek Harness（DSH）：
 
 - **右下角一个常驻小挂件**：大字显示可用余额合计、可用/总张数、30 天内到期提醒，带「刷新 / 明细 / 改 Key / 背景 / 隐藏」按钮，**可拖动、可调整大小、可换背景图**，位置、倍率、背景都会记住；
@@ -25,6 +27,34 @@
 卡片上只留数字本身，不再显示「已写入 …」那行长路径（文件照旧写，路径在对话摘要和文件面板里看）。
 
 缩放范围 `0.7×`–`2×`，拖动时卡片上方实时显示百分比，双击把手恢复 100%。以**右下角为支点**（放大向左上生长），位置也一律按 `right`/`bottom` 记，所以**无论放大还是缩小，卡片最多只能贴到窗口边缘，拖不出去**；窗口被拉小时也会自动把它拉回可视区。倍率与位置都存在浏览器 localStorage，刷新页面后保持。
+
+---
+
+## 仓库里的第二个插件：成就提示音
+
+[`dsh-achievement-sound/`](dsh-achievement-sound/README.md) —— 在「任务完成」和「助手停下来等你回答/选择」这两个时刻，由**宿主**直接放一声「成就解锁」风格的提示音（DSH 页面关着也响，也不需要先点一下页面解锁浏览器音频）。
+
+它**自带两个用代码合成的默认音**（`tools/gen-chime.mjs` 生成，钟声泛音列 + 指数衰减），clone 下来就能用，**不含任何第三方音效素材**。
+
+```sh
+git clone https://github.com/CJL-QWQ1/-300-dsh-.git
+cd -300-dsh-/dsh-achievement-sound
+npm pack --pack-destination ../        # → dsh-achievement-sound-0.1.1.tgz
+```
+
+然后让助手执行插件管理器的 `install_bundle`，target 写 `file:<上面那个 tgz 的绝对路径>`；**装完重启一次 DSH**（宿主半区在启动时加载）。
+
+想换成自己的音效：把任意 **PCM 格式的 wav** 复制成下面两个名字即可 —— 不用改配置、不用重装、也不用重启（每次触发都现读磁盘）：
+
+```
+%USERPROFILE%\.dsh\achievement-sound\task-end.wav       ← 任务完成音
+%USERPROFILE%\.dsh\achievement-sound\await-input.wav    ← 等待输入音
+```
+
+> ⚠️ 文件名必须一模一样。丢一个 `我的音效.wav` 进去是不会被用的，症状是「换了音却还是原来的声音」。
+> 放进去之前先体检：`node tools/wavinfo.mjs <你的文件>`（mp3 不行，SoundPlayer 只解 PCM wav）。
+
+配置项、诊断日志、排错表见 [子目录的 README](dsh-achievement-sound/README.md)。
 
 ---
 
